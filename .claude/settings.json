@@ -1,0 +1,25 @@
+{
+  "model": "sonnet",
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck)",
+      "Bash(npm run build)",
+      "Bash(sam validate*)",
+      "Bash(sam build*)",
+      "Bash(git status)",
+      "Bash(git diff *)"
+    ],
+    "ask": ["Bash(sam deploy*)", "Bash(npm install*)"],
+    "deny": ["Read(./.env)", "Read(./env.json)", "Read(./samconfig.toml)", "Bash(rm -rf *)", "Bash(sam delete*)"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/validate-bash.sh" }
+        ]
+      }
+    ]
+  }
+}

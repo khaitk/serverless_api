@@ -1,0 +1,142 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless API (API Gateway + Lambda + S3)
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: HS256 secret used to verify JWTs (prefer SSM/Secrets Manager in production)
+
+  BasicAuthUser:
+    Type: String
+    Description: Username for Basic login
+  BasicAuthPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    Description: Password for Basic login
+
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Architectures: [arm64]
+    MemorySize: 256
+    Timeout: 10
+    Environment:
+      Variables:
+        DATA_BUCKET: !Ref DataBucket
+        JWT_SECRET: !Ref JwtSecret
+        BASIC_AUTH_USER: !Ref BasicAuthUser
+        BASIC_AUTH_PASSWORD: !Ref BasicAuthPassword
+        NODE_OPTIONS: --enable-source-maps
+  Api:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  LoginFunction:
+    Type: AWS::Serverless::Function
+    Metadata: *build
+    Properties:
+      Handler: auth.handler.login
+      CodeUri: .
+      Events:
+        Api:
+          Type: Api
+          Properties: { Path: /auth/login, Method: post }
+
+  CreateNoteFunction:
+    Type: AWS::Serverless::Function
+    Metadata: &build
+      BuildMethod: esbuild
+      BuildProperties:
+        Format: esm
+        Target: es2023
+        Sourcemap: true
+        Minify: false
+        OutExtension: [.js=.mjs]
+        Banner: ["js=import { createRequire } from 'module'; const require = createRequire(import.meta.url);"]
+        EntryPoints: [src/handlers/note.handler.ts, src/handlers/auth.handler.ts]
+    Properties:
+      Handler: note.handler.createNote
+      CodeUri: .
+      Policies:
+        - S3CrudPolicy: { BucketName: !Ref DataBucket }
+      Events:
+        Api:
+          Type: Api
+          Properties: { Path: /notes, Method: post }
+
+  ListNotesFunction:
+    Type: AWS::Serverless::Function
+    Metadata: *build
+    Properties:
+      Handler: note.handler.listNotes
+      CodeUri: .
+      Policies:
+        - S3ReadPolicy: { BucketName: !Ref DataBucket }
+      Events:
+        Api:
+          Type: Api
+          Properties: { Path: /notes, Method: get }
+
+  GetNoteFunction:
+    Type: AWS::Serverless::Function
+    Metadata: *build
+    Properties:
+      Handler: note.handler.getNote
+      CodeUri: .
+      Policies:
+        - S3ReadPolicy: { BucketName: !Ref DataBucket }
+      Events:
+        Api:
+          Type: Api
+          Properties: { Path: '/notes/{id}', Method: get }
+
+  UpdateNoteFunction:
+    Type: AWS::Serverless::Function
+    Metadata: *build
+    Properties:
+      Handler: note.handler.updateNote
+      CodeUri: .
+      Policies:
+        - S3CrudPolicy: { BucketName: !Ref DataBucket }
+      Events:
+        Api:
+          Type: Api
+          Properties: { Path: '/notes/{id}', Method: put }
+
+  DeleteNoteFunction:
+    Type: AWS::Serverless::Function
+    Metadata: *build
+    Properties:
+      Handler: note.handler.deleteNote
+      CodeUri: .
+      Policies:
+        - S3CrudPolicy: { BucketName: !Ref DataBucket }
+      Events:
+        Api:
+          Type: Api
+          Properties: { Path: '/notes/{id}', Method: delete }
+
+Outputs:
+  ApiUrl:
+    Value: !Sub https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod
+  DataBucketName:
+    Value: !Ref DataBucket
